@@ -21,9 +21,6 @@ limiter = Limiter(key_func=get_remote_address)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up StoreIMS API...")
-    # Create tables (use alembic in production)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     yield
     logger.info("Shutting down...")
     await engine.dispose()
