@@ -2,6 +2,10 @@ from fastapi import APIRouter, Depends, Query, UploadFile, File, WebSocket, WebS
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from uuid import UUID
+from fastapi.responses import StreamingResponse
+from io import BytesIO
+import pandas as pd
+
 
 from app.db.database import get_db
 from app.core.deps import get_current_user, require_owner, get_current_store_id
@@ -261,6 +265,38 @@ async def list_products(
 ):
     return await ProductService.list_products(db, current_user.store_id, page, page_size, search, category_id, low_stock)
 
+@router.get("/products/export", tags=["Products"])
+async def export_products(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    df = await ProductService.export_products(
+        db,
+        current_user.store_id
+    )
+
+    output = BytesIO()
+
+    with pd.ExcelWriter(
+        output,
+        engine="openpyxl"
+    ) as writer:
+        df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Inventory"
+        )
+
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition":
+            "attachment; filename=inventory_export.xlsx"
+        }
+    )   
 
 @router.get("/products/barcode/{barcode}", tags=["Products"])
 async def get_by_barcode(

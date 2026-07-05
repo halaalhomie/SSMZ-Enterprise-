@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update, delete, or_
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
+import pandas as pd
 
 from app.models.models import Product, Category, StockTransaction, TransactionType
 from app.schemas.schemas import ProductCreate, ProductUpdate, ProductOut, ProductListOut
@@ -140,3 +141,38 @@ class ProductService:
             "page_size": page_size,
             "pages": (total + page_size - 1) // page_size,
         }
+
+    @staticmethod
+    async def export_products(
+        db: AsyncSession,
+        store_id: UUID
+    ):
+
+        result = await db.execute(
+            select(Product)
+            .options(selectinload(Product.category))
+            .where(
+                Product.store_id == store_id,
+                Product.is_active == True
+            )
+            .order_by(Product.name)
+        )
+
+        products = result.scalars().all()
+
+        rows = []
+
+        for p in products:
+            rows.append({
+                "SKU": p.sku,
+                "Barcode": p.barcode,
+                "Product Name": p.name,
+                "Category": p.category.name if p.category else "",
+                "Quantity": p.quantity,
+                "Purchase Price": float(p.purchase_price),
+                "Selling Price": float(p.selling_price),
+                "Min Stock": p.min_stock,
+                "Created At": p.created_at.strftime("%Y-%m-%d"),
+            })
+
+        return pd.DataFrame(rows)
