@@ -1,5 +1,6 @@
 'use client';
 
+import { api } from '@/lib/api';
 import { useState } from 'react';
 import {
   Plus,
@@ -60,24 +61,13 @@ export default function InventoryPage() {
 
   const handleExport = async () => {
     try {
-      const token = localStorage.getItem('access_token');
+      const response = await api.get('/products/export', {
+        responseType: 'blob',
+      });
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/products/export`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+      const url = window.URL.createObjectURL(
+        new Blob([response.data])
       );
-
-      if (!response.ok) {
-        throw new Error();
-      }
-
-      const blob = await response.blob();
-
-      const url = window.URL.createObjectURL(blob);
 
       const link = document.createElement('a');
       link.href = url;
@@ -91,6 +81,7 @@ export default function InventoryPage() {
 
       toast.success('Inventory exported successfully');
     } catch (error) {
+      console.error(error);
       toast.error('Failed to export inventory');
     }
   };
