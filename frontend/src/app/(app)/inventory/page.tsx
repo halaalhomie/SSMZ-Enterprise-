@@ -97,27 +97,21 @@ export default function InventoryPage() {
     formData.append('file', file);
 
     try {
-      const token = localStorage.getItem('access_token');
-
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/products/import`,
+      await api.post(
+        '/products/import',
+        formData,
         {
-          method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data',
           },
-          body: formData,
         }
       );
-
-      if (!response.ok) {
-        throw new Error();
-      }
 
       toast.success('Inventory imported successfully');
 
       window.location.reload();
     } catch (error) {
+      console.error(error);
       toast.error('Import failed');
     }
   };
