@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, Query, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, UploadFile, File, WebSocket, WebSocketDisconnect, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from uuid import UUID
 from fastapi.responses import StreamingResponse
 from io import BytesIO
 import pandas as pd
+from openpyxl import load_workbook
 
-
+from app.models.models import User, Product
 from app.db.database import get_db
 from app.core.deps import get_current_user, require_owner, get_current_store_id
 from app.models.models import User
@@ -297,6 +298,53 @@ async def export_products(
             "attachment; filename=inventory_export.xlsx"
         }
     )   
+
+@router.post("/products/import", tags=["Products"])
+async def import_products(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    contents = await file.read()
+
+    workbook = load_workbook(BytesIO(contents))
+    sheet = workbook.active
+
+    from sqlalchemy import select
+
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+
+        name = row[0]
+        sku = row[1]
+        quantity = row[2]
+        purchase_price = row[3]
+        selling_price = row[4]
+
+        existing = await db.scalar(
+            select(Product).where(Product.sku == sku)
+        )
+
+        if existing:
+            print(f"{sku} already exists. Skipping...")
+            continue
+
+        product = Product(
+            store_id=current_user.store_id,
+            name=name,
+            sku=sku,
+            quantity=quantity,
+            selling_price=selling_price,
+            purchase_price=purchase_price,
+            min_stock=5,
+        )
+
+        db.add(product)
+
+    await db.commit()
+
+    return {
+        "message": "Products imported successfully"
+    }
 
 @router.get("/products/barcode/{barcode}", tags=["Products"])
 async def get_by_barcode(

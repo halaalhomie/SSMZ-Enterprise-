@@ -5,6 +5,7 @@ import { tokenStorage } from '@/lib/api';
 interface AuthStore {
   user: User | null;
   isAuthenticated: boolean;
+  isHydrated: boolean;
   setUser: (user: User) => void;
   setTokens: (access: string, refresh: string) => void;
   logout: () => void;
@@ -14,15 +15,35 @@ interface AuthStore {
 export const useAuthStore = create<AuthStore>((set) => ({
   user: null,
   isAuthenticated: false,
+  isHydrated: false,
 
   hydrate: () => {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    const raw =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('user')
+        : null;
+
     const token = tokenStorage.get();
+
     if (raw && token) {
       try {
         const user = JSON.parse(raw) as User;
-        set({ user, isAuthenticated: true });
-      } catch {}
+
+        set({
+          user,
+          isAuthenticated: true,
+          isHydrated: true,
+        });
+
+      } catch {
+        set({
+          isHydrated: true,
+        });
+      }
+    } else {
+      set({
+        isHydrated: true,
+      });
     }
   },
 

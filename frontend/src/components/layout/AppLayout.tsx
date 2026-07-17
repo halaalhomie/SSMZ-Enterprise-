@@ -11,7 +11,7 @@ import Footer from './Footer';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, logout, isAuthenticated } = useAuthStore();
+  const { user, logout, isAuthenticated, isHydrated } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dark, setDark] = useState(false);
   const qc = useQueryClient();
@@ -34,15 +34,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    if (!isAuthenticated) router.push('/auth/login');
-  }, [isAuthenticated, router]);
+
+    if (!isHydrated) return;
+
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+    }
+
+  }, [isAuthenticated, isHydrated, router]);
 
   useEffect(() => {
     if (dark) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [dark]);
 
-  if (!isAuthenticated || !user) return null;
+  if (!isHydrated) {
+    return <div>Loading...</div>;
+  }
+
+  if (!isAuthenticated || !user) {
+    router.push('/auth/login');
+    return null;
+  }
 
   const handleLogout = () => {
     logout();
