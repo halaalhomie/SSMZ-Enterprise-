@@ -118,12 +118,21 @@ async def log_activity(
 
 # ─── Notification Helper ──────────────────────────────────────────────────────
 
-async def check_low_stock_notification(db: AsyncSession, product: Product) -> None:
+async def check_low_stock_notification(
+    db,
+    product,
+    user_id
+):
     if product.quantity <= product.min_stock:
         notif = Notification(
             store_id=product.store_id,
-            user_id=product.store_id,  # will be sent to all store owners; override as needed
+            user_id=user_id,
             type="low_stock",
-            message=f"Low stock alert: {product.name} has only {product.quantity} units left (min: {product.min_stock})",
+            message=(
+                f"Low stock alert: {product.name} "
+                f"has only {product.quantity} units left "
+                f"(min: {product.min_stock})"
+            ),
         )
+
         db.add(notif)

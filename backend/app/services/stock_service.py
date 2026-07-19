@@ -83,7 +83,7 @@ class StockService:
             db, store_id, user_id, "stock_out", "product", data.product_id,
             {"quantity": data.quantity, "product_name": product.name}
         )
-        await check_low_stock_notification(db, product)
+        await check_low_stock_notification(db, product, user_id)
         return txn
 
     @staticmethod
