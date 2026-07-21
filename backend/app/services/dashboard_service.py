@@ -20,9 +20,9 @@ class DashboardService:
         )
         total_products = total_products_result.scalar() or 0
 
-        # Inventory value = sum(quantity * purchase_price)
+        # Inventory value is based on the selling price shown in the inventory list.
         inv_value_result = await db.execute(
-            select(func.sum(Product.quantity * Product.purchase_price))
+            select(func.sum(Product.quantity * Product.selling_price))
             .where(Product.store_id == store_id, Product.is_active == True)
         )
         total_inventory_value = inv_value_result.scalar() or Decimal("0")
@@ -35,15 +35,36 @@ class DashboardService:
         low_stock_count = low_stock_result.scalar() or 0
 
         # Today stock in/out
-        today_in_result = await db.execute(
-            select(func.count(StockTransaction.id)).where(
+        today_in_transactions = await db.execute(
+            select(func.count(StockTransaction.id))
+            .where(
                 StockTransaction.store_id == store_id,
                 StockTransaction.type == TransactionType.STOCK_IN,
                 StockTransaction.created_at >= today_start,
             )
         )
-        today_out_result = await db.execute(
-            select(func.count(StockTransaction.id)).where(
+
+        today_in_units = await db.execute(
+            select(func.sum(StockTransaction.quantity))
+            .where(
+                StockTransaction.store_id == store_id,
+                StockTransaction.type == TransactionType.STOCK_IN,
+                StockTransaction.created_at >= today_start,
+            )
+        )
+
+        today_out_transactions = await db.execute(
+            select(func.count(StockTransaction.id))
+            .where(
+                StockTransaction.store_id == store_id,
+                StockTransaction.type == TransactionType.STOCK_OUT,
+                StockTransaction.created_at >= today_start,
+            )
+        )
+
+        today_out_units = await db.execute(
+            select(func.sum(StockTransaction.quantity))
+            .where(
                 StockTransaction.store_id == store_id,
                 StockTransaction.type == TransactionType.STOCK_OUT,
                 StockTransaction.created_at >= today_start,
@@ -62,8 +83,19 @@ class DashboardService:
             total_products=total_products,
             total_inventory_value=total_inventory_value,
             low_stock_count=low_stock_count,
-            today_stock_in=today_in_result.scalar() or 0,
-            today_stock_out=today_out_result.scalar() or 0,
+
+            today_stock_in_transactions=
+                today_in_transactions.scalar() or 0,
+
+            today_stock_in_units=
+                today_in_units.scalar() or 0,
+
+            today_stock_out_transactions=
+                today_out_transactions.scalar() or 0,
+
+            today_stock_out_units=
+                today_out_units.scalar() or 0,
+
             total_suppliers=suppliers_result.scalar() or 0,
             total_categories=categories_result.scalar() or 0,
         )

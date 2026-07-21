@@ -329,8 +329,10 @@ class DashboardStats(BaseModel):
     total_products: int
     total_inventory_value: Decimal
     low_stock_count: int
-    today_stock_in: int
-    today_stock_out: int
+    today_stock_in_transactions: int
+    today_stock_in_units: int
+    today_stock_out_transactions: int
+    today_stock_out_units: int
     total_suppliers: int
     total_categories: int
 

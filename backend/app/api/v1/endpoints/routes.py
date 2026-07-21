@@ -7,7 +7,7 @@ from io import BytesIO
 import pandas as pd
 from openpyxl import load_workbook
 
-from app.models.models import User, Product
+from app.models.models import User, Product, StockTransaction, TransactionType
 from app.db.database import get_db
 from app.core.deps import get_current_user, require_owner, get_current_store_id
 from app.models.models import User
@@ -305,45 +305,173 @@ async def import_products(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    contents = await file.read()
-
-    workbook = load_workbook(BytesIO(contents))
-    sheet = workbook.active
-
+    from decimal import Decimal, InvalidOperation
+    from fastapi import HTTPException, status
     from sqlalchemy import select
 
-    for row in sheet.iter_rows(min_row=2, values_only=True):
-
-        name = row[0]
-        sku = row[1]
-        quantity = row[2]
-        purchase_price = row[3]
-        selling_price = row[4]
-
-        existing = await db.scalar(
-            select(Product).where(Product.sku == sku)
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please upload an .xlsx inventory workbook.",
         )
 
-        if existing:
-            print(f"{sku} already exists. Skipping...")
+    try:
+        workbook = load_workbook(BytesIO(await file.read()), data_only=True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded file is not a valid Excel workbook.",
+        ) from exc
+
+    sheet = workbook.active
+    raw_headers = {
+        str(value).strip().lower().replace("_", " ").replace("-", " "): index
+        for index, value in enumerate(next(sheet.iter_rows(min_row=1, max_row=1, values_only=True)))
+        if value is not None
+    }
+    # Support both the application's exported workbook and a conventional
+    # simple template (Name, SKU, Quantity, Purchase Price, Selling Price).
+    header_aliases = {
+        "product name": ("product name", "name", "product", "item name"),
+        "sku": ("sku", "product sku", "sku / barcode", "sku/barcode"),
+        "quantity": ("quantity", "qty", "stock", "stock quantity"),
+        "purchase price": ("purchase price", "cost price", "cost", "unit cost", "price"),
+        "selling price": ("selling price", "sale price", "retail price", "unit price", "price"),
+        "barcode": ("barcode", "bar code"),
+        "min stock": ("min stock", "minimum stock", "reorder level"),
+    }
+    headers = {
+        canonical: next((raw_headers[alias] for alias in aliases if alias in raw_headers), None)
+        for canonical, aliases in header_aliases.items()
+    }
+
+    # If no recognised headers are present, preserve compatibility with the
+    # original five-column template: Name, SKU, Quantity, Purchase, Selling.
+    if not any(index is not None for index in headers.values()):
+        headers.update({
+            "product name": 0,
+            "sku": 1,
+            "quantity": 2,
+            "purchase price": 3,
+            "selling price": 4,
+        })
+        first_data_row = 1
+    else:
+        first_data_row = 2
+
+    # Product name, SKU and quantity are essential. Price columns are optional:
+    # quantities can be imported first and priced later from the product editor.
+    required_headers = {"product name", "sku", "quantity"}
+    missing_headers = {header for header in required_headers if headers[header] is None}
+    if missing_headers:
+        return {
+            "message": "No products were imported.",
+            "imported": 0,
+            "skipped": 1,
+            "errors": [{
+                "row": 1,
+                "reason": "Missing required column(s): " + ", ".join(sorted(missing_headers)) + ".",
+            }],
+        }
+
+    imported = 0
+    restored = 0
+    skipped: list[dict[str, str | int]] = []
+    seen_skus: set[str] = set()
+    missing_price_columns = [
+        header for header in ("purchase price", "selling price")
+        if headers[header] is None
+    ]
+
+    def value_at(row: tuple, header: str, default=None):
+        index = headers.get(header)
+        return row[index] if index is not None and index < len(row) else default
+
+    for row_number, row in enumerate(sheet.iter_rows(min_row=first_data_row, values_only=True), start=first_data_row):
+        if not any(value is not None and str(value).strip() for value in row):
             continue
 
+        name = str(value_at(row, "product name") or "").strip()
+        sku = str(value_at(row, "sku") or "").strip()
+        try:
+            quantity = int(value_at(row, "quantity"))
+            purchase_price = Decimal(str(value_at(row, "purchase price", 0) or 0))
+            selling_price = Decimal(str(value_at(row, "selling price", 0) or 0))
+            min_stock = int(value_at(row, "min stock", 5) or 5)
+        except (TypeError, ValueError, InvalidOperation):
+            skipped.append({"row": row_number, "reason": "Quantity, prices, or minimum stock are invalid."})
+            continue
+
+        if not name or not sku:
+            skipped.append({"row": row_number, "reason": "Product Name and SKU are required."})
+            continue
+        if quantity < 0 or purchase_price < 0 or selling_price < 0 or min_stock < 0:
+            skipped.append({"row": row_number, "reason": "Quantity, prices, and minimum stock cannot be negative."})
+            continue
+        if sku in seen_skus:
+            skipped.append({"row": row_number, "reason": f"Duplicate SKU '{sku}' in this workbook."})
+            continue
+
+        seen_skus.add(sku)
+        existing = await db.scalar(select(Product).where(Product.sku == sku))
+        if existing:
+            # Deleted products are soft-deleted, so they remain in the SKU
+            # index but are absent from the Inventory list and exports. An
+            # import of that SKU should restore it instead of hiding it again.
+            if existing.store_id == current_user.store_id and not existing.is_active:
+                barcode = value_at(row, "barcode")
+                existing.name = name
+                existing.barcode = str(barcode).strip() if barcode is not None and str(barcode).strip() else None
+                existing.quantity = quantity
+                existing.purchase_price = purchase_price
+                existing.selling_price = selling_price
+                existing.min_stock = min_stock
+                existing.is_active = True
+                imported += 1
+                restored += 1
+                continue
+
+            scope = "this store" if existing.store_id == current_user.store_id else "another store"
+            skipped.append({"row": row_number, "reason": f"SKU '{sku}' already exists in {scope}."})
+            continue
+
+        barcode = value_at(row, "barcode")
         product = Product(
             store_id=current_user.store_id,
             name=name,
             sku=sku,
+            barcode=str(barcode).strip() if barcode is not None and str(barcode).strip() else None,
             quantity=quantity,
             selling_price=selling_price,
             purchase_price=purchase_price,
-            min_stock=5,
+            min_stock=min_stock,
         )
-
         db.add(product)
+        await db.flush()
 
-    await db.commit()
+        if quantity:
+            db.add(StockTransaction(
+                store_id=current_user.store_id,
+                product_id=product.id,
+                user_id=current_user.id,
+                type=TransactionType.STOCK_IN,
+                quantity=quantity,
+                cost_per_unit=purchase_price,
+                remarks="Imported via Excel",
+            ))
+        imported += 1
+
+    message = f"Imported {imported} product(s)."
+    if restored:
+        message += f" Restored {restored} previously deleted product(s)."
+    if missing_price_columns:
+        message += " Missing prices were set to ₹0.00; update them from the product editor."
 
     return {
-        "message": "Products imported successfully"
+        "message": message,
+        "imported": imported,
+        "skipped": len(skipped),
+        "errors": skipped,
     }
 
 @router.get("/products/barcode/{barcode}", tags=["Products"])

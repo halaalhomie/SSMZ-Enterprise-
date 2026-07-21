@@ -97,7 +97,7 @@ export default function InventoryPage() {
     formData.append('file', file);
 
     try {
-      await api.post(
+      const { data } = await api.post(
         '/products/import',
         formData,
         {
@@ -107,12 +107,22 @@ export default function InventoryPage() {
         }
       );
 
-      toast.success('Inventory imported successfully');
+      if (data.imported > 0) {
+        toast.success(data.message);
+      } else {
+        toast.error(data.errors?.[0]?.reason || 'No products were imported');
+      }
+      if (data.skipped > 0) {
+        console.warn('Skipped import rows:', data.errors);
+        toast(`${data.skipped} row(s) skipped. See the browser console for details.`, { icon: '⚠️' });
+      }
 
+      // Clear the file input so the same corrected file can be selected again.
+      event.target.value = '';
       window.location.reload();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast.error('Import failed');
+      toast.error(error.response?.data?.detail || 'Import failed');
     }
   };
 
@@ -144,7 +154,7 @@ export default function InventoryPage() {
 
             <input
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx"
               className="hidden"
               onChange={handleImport}
             />

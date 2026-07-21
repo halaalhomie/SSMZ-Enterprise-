@@ -83,20 +83,21 @@ export default function DashboardPage() {
 
       {/* Today's transactions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <StatCard
+      <StatCard
           icon={ArrowDownToLine}
           label="Today's Stock In"
-          value={stats?.today_stock_in ?? 0}
-          sub="transactions today"
-          color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
-        />
-        <StatCard
+          value={stats?.today_stock_in_units ?? 0}
+          sub={`${stats?.today_stock_in_transactions ?? 0} transactions`}
+          color="bg-green-100 text-green-600"
+      />
+
+      <StatCard
           icon={ArrowUpFromLine}
           label="Today's Stock Out"
-          value={stats?.today_stock_out ?? 0}
-          sub="transactions today"
-          color="bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
-        />
+          value={stats?.today_stock_out_units ?? 0}
+          sub={`${stats?.today_stock_out_transactions ?? 0} transactions`}
+          color="bg-red-100 text-red-600"
+      />
       </div>
 
       {/* Charts */}

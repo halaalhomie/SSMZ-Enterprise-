@@ -122,8 +122,10 @@ export interface DashboardStats {
   total_products: number;
   total_inventory_value: number;
   low_stock_count: number;
-  today_stock_in: number;
-  today_stock_out: number;
+  today_stock_in_transactions: number;
+  today_stock_in_units: number;
+  today_stock_out_transactions: number;
+  today_stock_out_units: number;
   total_suppliers: number;
   total_categories: number;
 }
